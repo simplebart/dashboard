@@ -602,3 +602,44 @@ ul { margin: 0; padding: 0; list-style: none; }
   background: repeating-linear-gradient(90deg, var(--line) 0 4px, transparent 4px 8px);
 }
 .btn.aan { background: rgba(122,167,147,0.14); border-color: rgba(122,167,147,0.45); color: #9ec4b2; }
+
+/* ------------------------------- dagstrook -------------------------------- */
+.strook-kop { display: flex; justify-content: space-between; align-items: flex-start; }
+.strook {
+  position: relative; height: 34px; margin-top: 16px; border-radius: 8px;
+  background: #101013; border: 1px solid var(--line-soft); overflow: hidden;
+}
+.strook-blok {
+  position: absolute; top: 0; bottom: 0; display: flex; align-items: center;
+  padding: 0 8px; font-size: 11px; color: #f4f4f5; overflow: hidden; white-space: nowrap;
+  border-right: 1px solid rgba(0,0,0,0.35);
+}
+.strook-gat {
+  position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 10.5px; color: var(--faint);
+  background: repeating-linear-gradient(135deg, rgba(255,255,255,0.035) 0 6px, transparent 6px 12px);
+}
+.strook-gat:hover { background: rgba(122,167,147,0.14); color: #9ec4b2; }
+.strook-nu { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.5); }
+.strook-schaal { display: flex; justify-content: space-between; margin-top: 6px; font-size: 10.5px; color: var(--faint); }
+
+.gat-lijst { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
+.gat-rij {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 8px 10px; border-radius: 8px; font-size: 12.5px; color: var(--muted);
+}
+.gat-rij:hover { background: #141417; color: var(--fg); }
+.gat-tijd { font-variant-numeric: tabular-nums; width: 108px; flex-shrink: 0; }
+.gat-duur { flex: 1; color: var(--dim); }
+.gat-actie { display: flex; align-items: center; gap: 5px; color: var(--faint); font-size: 11.5px; }
+.gat-rij:hover .gat-actie { color: #9ec4b2; }
+
+.week-strook { display: flex; flex-direction: column; gap: 10px; }
+.week-strook-rij { display: flex; align-items: center; gap: 12px; }
+.week-strook-dag { width: 58px; flex-shrink: 0; font-size: 11.5px; color: var(--dim); }
+.week-strook-dag.nu { color: var(--fg); }
+.week-strook-rij .strook-kop,
+.week-strook-rij .strook-schaal,
+.week-strook-rij .gat-lijst { display: none; }
+.week-strook-rij .inset { flex: 1; padding: 0; border: none; background: none; }
+.week-strook-rij .strook { margin-top: 0; height: 22px; }
