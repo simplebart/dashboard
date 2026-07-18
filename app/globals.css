@@ -504,3 +504,95 @@ ul { margin: 0; padding: 0; list-style: none; }
 
 .feed-knoppen { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .feed-knoppen .btn { gap: 7px; }
+
+/* ------------------------------- herhalingen ------------------------------ */
+.herhaal { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.herhaal input { accent-color: #7aa793; width: 15px; height: 15px; }
+.event .herhaal-merk { position: absolute; top: 3px; right: 4px; opacity: 0.65; }
+.reeks-keuze { display: flex; gap: 8px; margin: 12px 0 0; }
+.reeks-keuze .btn { flex: 1; justify-content: center; }
+
+.reeks-merk {
+  display: flex; align-items: center; gap: 7px; margin-top: 14px; font-size: 12px;
+  color: var(--dim); border-top: 1px solid var(--line-soft); padding-top: 12px;
+}
+
+/* -------------------------------- slepen ---------------------------------- */
+.event { cursor: grab; user-select: none; touch-action: none; }
+.event.sleept { cursor: grabbing; z-index: 5; opacity: 0.9; box-shadow: 0 12px 24px rgba(0,0,0,0.5); }
+
+/* ----------------------------- weekafsluiting ----------------------------- */
+.afsluit-lijst { display: flex; flex-direction: column; gap: 18px; }
+.afsluit-kop { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint); margin-bottom: 8px; }
+.afsluit-rij { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.afsluit-rij.uit .afsluit-titel { text-decoration: line-through; color: var(--faint); }
+.afsluit-titel { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.afsluit-knoppen { display: flex; gap: 6px; }
+.vink {
+  height: 22px; width: 22px; border-radius: 6px; border: 1px solid var(--line);
+  display: grid; place-items: center; color: var(--faint);
+}
+.vink:hover { color: var(--fg); }
+.vink.aan { background: rgba(122,167,147,0.16); border-color: rgba(122,167,147,0.5); color: #7aa793; }
+.vink.kruis.aan { background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.4); color: #fca5a5; }
+
+/* ================================ mobiel ================================== */
+.mobilenav { display: none; }
+.fab { display: none; }
+
+@media (max-width: 900px) {
+  .main { padding: 12px; }
+  .topbar { padding: 10px 12px; }
+  .grid-stats { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .grid-main, .grid-half { grid-template-columns: 1fr; gap: 10px; }
+  .stack { gap: 10px; }
+  .section-title { font-size: 19px; }
+  .section-head { margin: 18px 0 10px; }
+  .card-body { padding: 13px; }
+  .inset { padding: 13px; }
+  .stat-value { font-size: 25px; }
+  .legend-value { font-size: 23px; }
+  .chart-legend { gap: 26px; }
+
+  /* horizontaal schuiven in plaats van platdrukken */
+  .week { overflow-x: auto; padding-bottom: 6px; }
+  .week-days { min-width: 620px; }
+  .hour-label { font-size: 10px; }
+
+  .mobilenav {
+    display: flex; gap: 6px; overflow-x: auto; padding: 10px 12px;
+    border-bottom: 1px solid var(--line-soft); scrollbar-width: none;
+  }
+  .mobilenav::-webkit-scrollbar { display: none; }
+  .mob-item {
+    display: flex; align-items: center; gap: 7px; white-space: nowrap; flex-shrink: 0;
+    border: 1px solid var(--line); background: var(--card); border-radius: 999px;
+    padding: 7px 13px; font-size: 12.5px; color: var(--muted);
+  }
+  .mob-item.active { background: #17171b; color: var(--fg); border-color: #33333a; }
+
+  .bell-panel { position: fixed; left: 12px; right: 12px; top: 58px; width: auto; }
+  .menu-panel { position: fixed; right: 12px; top: 58px; }
+  .modal { max-width: none; }
+  .modal.wide { max-width: none; }
+  .tip-box { min-width: 130px; font-size: 11.5px; padding: 8px 10px; }
+
+  .setting { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .setting-control { width: 100%; flex-wrap: wrap; }
+  .form-row .input, .form-row .select { flex: 1; }
+
+  .fab {
+    display: grid; place-items: center; position: fixed; right: 16px; bottom: 20px; z-index: 30;
+    height: 52px; width: 52px; border-radius: 999px; background: var(--fg); color: #09090b;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.6);
+  }
+  .toast { bottom: 84px; }
+}
+
+@media (max-width: 520px) {
+  .grid-stats { grid-template-columns: 1fr 1fr; }
+  .row-time { width: 78px; font-size: 11.5px; }
+  .row-tag { display: none; }
+  .peak-title { font-size: 19px; }
+  .usage-pct { font-size: 20px; }
+}
