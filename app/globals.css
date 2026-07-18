@@ -596,3 +596,9 @@ ul { margin: 0; padding: 0; list-style: none; }
   .peak-title { font-size: 19px; }
   .usage-pct { font-size: 20px; }
 }
+
+.leeg-merk {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: repeating-linear-gradient(90deg, var(--line) 0 4px, transparent 4px 8px);
+}
+.btn.aan { background: rgba(122,167,147,0.14); border-color: rgba(122,167,147,0.45); color: #9ec4b2; }
