@@ -595,50 +595,25 @@ function WeekGrid({ events, weekDates, todayIso, settings, onSelect }) {
   );
 }
 
-/* piekuren: op welk moment van de dag je week zich ophoopt */
-function PeakHours({ events, weekDates, settings }) {
-  const [hover, setHover] = useState(null);
-  const uren = Array.from({ length: settings.dayEnd - settings.dayStart }, (_, i) => settings.dayStart + i);
-
-  const kolommen = uren.map((h) => {
-    const delen = Object.keys(TYPES).map((t) => ({
-      t,
-      u: weekDates.reduce((s, d) => s + onDay(events, d)
-        .filter((e) => e.type === t && e.start < h + 1 && e.end > h)
-        .reduce((x, e) => x + Math.min(e.end, h + 1) - Math.max(e.start, h), 0), 0),
-    }));
-    return { h, delen, totaal: delen.reduce((s, x) => s + x.u, 0) };
-  });
-
-  const alles = kolommen.reduce((s, k) => s + k.totaal, 0);
-  const top = Math.max(1, Math.ceil(Math.max(...kolommen.map((k) => k.totaal))));
-  const scale = (u) => (u / top) * 86;
+/* piekuren: over welk uur van de dag je week het drukst is */
+function PeakHours({ events, weekDates }) {
+  const perHour = Array.from({ length: 24 }, (_, h) => weekDates.reduce((sum, d) => sum + busyAt(events, d, h), 0));
+  const total = perHour.reduce((a, b) => a + b, 0) || 1;
+  const top = Math.ceil(Math.max(...perHour, 1));
+  const scale = (v) => (v / top) * 88;
   const ticks = top <= 2 ? [0, 1, 2].slice(0, top + 1) : [0, Math.round(top / 2), top];
-
-  // het drukste blok van twee uur
-  let piek = 0, beste = -1;
-  for (let i = 0; i < kolommen.length - 1; i++) {
-    const som = kolommen[i].totaal + kolommen[i + 1].totaal;
-    if (som > beste) { beste = som; piek = i; }
+  let bestStart = 0, best = -1;
+  for (let h = 0; h < 23; h++) {
+    const s = perHour[h] + perHour[h + 1];
+    if (s > best) { best = s; bestStart = h; }
   }
-  const deel = alles ? Math.round((beste / alles) * 100) : 0;
-  const H = 150;
-
-  if (!alles) {
-    return (
-      <div className="inset">
-        <div className="peak-title">Nog niets gepland</div>
-        <p className="peak-sub">Zodra er afspraken in deze week staan, zie je hier waar je uren zich ophopen.</p>
-      </div>
-    );
-  }
+  const share = Math.round((perHour[bestStart] / total) * 100);
+  const H = 130;
 
   return (
     <div className="inset">
-      <div className="peak-title">
-        {String(kolommen[piek].h).padStart(2, "0")}:00 – {String(kolommen[piek].h + 2).padStart(2, "0")}:00
-      </div>
-      <p className="peak-sub">{deel}% van je week valt in dit blok van twee uur</p>
+      <div className="peak-title">{String(bestStart).padStart(2, "0")}:00 – {String(bestStart + 2).padStart(2, "0")}:00</div>
+      <p className="peak-sub">~{share}% van je geplande uren valt in het drukste uur</p>
       <div className="axis-wrap">
         <div className="y-axis" style={{ height: H }}>
           {ticks.map((t) => <span key={t} className="y-label" style={{ bottom: `${scale(t)}%` }}>{t}</span>)}
@@ -649,39 +624,15 @@ function PeakHours({ events, weekDates, settings }) {
             <div className="hgrid">
               {ticks.map((t) => <div key={t} className={`hline${t === 0 ? " base" : ""}`} style={{ bottom: `${scale(t)}%` }} />)}
             </div>
-            <div className="bars" style={{ height: H }}>
-              {kolommen.map((k, i) => (
-                <div key={k.h} className="bar"
-                  onMouseEnter={() => setHover({ i, ...k })} onMouseLeave={() => setHover(null)}>
-                  <div className="bar-stack">
-                    {k.delen.filter((x) => x.u > 0).map((x) => (
-                      <div key={x.t} className="bar-seg" style={{ height: `${scale(x.u)}%`, background: TYPES[x.t].color }} />
-                    ))}
-                  </div>
-                </div>
+            <div className="mini-bars" style={{ height: H }}>
+              {perHour.map((v, i) => (
+                <div key={i} className="mini-bar" title={`${String(i).padStart(2, "0")}:00 — ${v.toFixed(1)} uur deze week`}
+                  style={{ height: `${scale(v)}%` }} />
               ))}
             </div>
-            {hover && (
-              <Tip x={((hover.i + 0.5) / kolommen.length) * 100}>
-                <div className="tip-box-head">
-                  {String(hover.h).padStart(2, "0")}:00 – {String(hover.h + 1).padStart(2, "0")}:00
-                </div>
-                {hover.totaal === 0
-                  ? <div className="tip-box-empty">Dit uur is de hele week vrij</div>
-                  : hover.delen.filter((x) => x.u > 0).map((x) => (
-                    <div key={x.t} className="tip-box-row">
-                      <span className="type-dot" style={{ background: TYPES[x.t].color }} />
-                      {TYPES[x.t].label}
-                      <span className="tip-box-meta">{x.u.toFixed(1)} u</span>
-                    </div>
-                  ))}
-              </Tip>
-            )}
           </div>
           <div className="hour-labels">
-            {kolommen.map((k, i) => (
-              <div key={k.h} className="hour-label">{i % 3 === 0 ? `${String(k.h).padStart(2, "0")}:00` : ""}</div>
-            ))}
+            {perHour.map((_, i) => <div key={i} className="hour-label">{i % 6 === 0 ? String(i).padStart(2, "0") : ""}</div>)}
           </div>
         </div>
       </div>
@@ -882,7 +833,6 @@ export default function Dashboard() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [belOpen, setBelOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [feedTekst, setFeedTekst] = useState(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState({ title: "", type: "vrij", date: todayIso, start: "19:00", end: "20:00" });
   const fileRef = useRef(null);
@@ -1057,20 +1007,19 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
     flash("Open het bestand om het aan Apple Agenda toe te voegen");
   }
-  function feedAdres(soort) {
+  function feedAdres() {
     let token = data.feedToken;
     if (!token) {
       token = Array.from({ length: 5 }, () => Math.random().toString(36).slice(2, 8)).join("");
       setData((p) => ({ ...p, feedToken: token }));
     }
     const host = typeof window !== "undefined" ? window.location.host : "";
-    return `webcal://${host}/api/agenda/${token}${soort ? "-" + soort : ""}.ics`;
+    return `webcal://${host}/api/agenda/${token}.ics`;
   }
-  async function kopieerFeed(soort) {
-    const adres = feedAdres(soort);
-    setFeedTekst(adres);
-    try { await navigator.clipboard.writeText(adres); flash(soort ? `Adres voor ${TYPES[soort].label} gekopieerd` : "Adres gekopieerd"); }
-    catch { flash("Kopieer het adres hieronder"); }
+  async function kopieerFeed() {
+    const adres = feedAdres();
+    try { await navigator.clipboard.writeText(adres); flash("Adres gekopieerd"); }
+    catch { flash(adres); }
   }
 
   function exportJson() {
@@ -1359,7 +1308,7 @@ export default function Dashboard() {
                     </div>
                   </Card>
                   <Card icon={Clock} title="Piekuren">
-                    <PeakHours events={data.events} weekDates={weekDates} settings={settings} />
+                    <PeakHours events={data.events} weekDates={weekDates} />
                   </Card>
                 </div>
               </div>
@@ -1597,28 +1546,19 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="setting">
-                  <div style={{ width: "100%" }}>
+                  <div>
                     <div className="setting-label">Live meekijken</div>
                     <div className="setting-hint">
                       {user
                         ? "Abonneer Apple Agenda op dit adres, dan ververst je week zichzelf. In Agenda: Archief → Nieuw agenda-abonnement, adres plakken."
                         : "Hiervoor moet je ingelogd zijn, want de feed haalt je week uit de database."}
                     </div>
-                    {user && <code className="feed">{feedTekst || (data.feedToken ? feedAdres() : "adres verschijnt zodra je kopieert")}</code>}
-                    <div className="feed-knoppen">
-                      <button className="btn btn-sm" disabled={!user} onClick={() => kopieerFeed()}>
-                        <Copy size={13} /> Alles
-                      </button>
-                      {Object.entries(TYPES).map(([k, t]) => (
-                        <button key={k} className="btn btn-sm" disabled={!user} onClick={() => kopieerFeed(k)}>
-                          <span className="type-dot" style={{ background: t.color }} /> {t.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="setting-hint" style={{ marginTop: 10 }}>
-                      Eén abonnement krijgt in Apple Agenda één kleur. Wil je kleur per soort, abonneer je dan
-                      op de drie losse adressen in plaats van op Alles — dan geef je elke agenda daar zijn eigen kleur.
-                    </div>
+                    {user && <code className="feed">{data.feedToken ? feedAdres() : "adres wordt aangemaakt zodra je kopieert"}</code>}
+                  </div>
+                  <div className="setting-control">
+                    <button className="btn btn-sm" disabled={!user} onClick={kopieerFeed}>
+                      <Copy size={13} /> Kopieer adres
+                    </button>
                   </div>
                 </div>
                 <div className="setting">

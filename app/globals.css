@@ -501,6 +501,3 @@ ul { margin: 0; padding: 0; list-style: none; }
   padding: 8px 10px; word-break: break-all; font-family: ui-monospace, SFMono-Regular, monospace;
 }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-
-.feed-knoppen { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.feed-knoppen .btn { gap: 7px; }
