@@ -65,15 +65,15 @@ function seed() {
     ],
     events: [
       ...historie,
-      { id: uid(), date: D(0), start: 9, end: 17, title: "Werk", type: "verplicht" },
+      { id: uid(), date: D(0), start: 9, end: 17, title: "Werk", type: "verplicht", repeat: "week" },
       { id: uid(), date: D(0), start: 19, end: 20.5, title: "Koken met Sam", type: "vrij" },
-      { id: uid(), date: D(1), start: 9, end: 17, title: "Werk", type: "verplicht" },
-      { id: uid(), date: D(1), start: 18.5, end: 20, title: "Gym", type: "vrij" },
-      { id: uid(), date: D(2), start: 9, end: 21, title: "Werk", type: "verplicht" },
+      { id: uid(), date: D(1), start: 9, end: 17, title: "Werk", type: "verplicht", repeat: "week" },
+      { id: uid(), date: D(1), start: 18.5, end: 20, title: "Gym", type: "vrij", repeat: "week" },
+      { id: uid(), date: D(2), start: 9, end: 21, title: "Werk", type: "verplicht", repeat: "week" },
       { id: uid(), date: D(2), start: 21.5, end: 22.5, title: "Gym", type: "vrij" },
-      { id: uid(), date: D(3), start: 9, end: 17, title: "Werk", type: "verplicht" },
+      { id: uid(), date: D(3), start: 9, end: 17, title: "Werk", type: "verplicht", repeat: "week" },
       { id: uid(), date: D(3), start: 17.5, end: 18.5, title: "Tandarts", type: "verplicht" },
-      { id: uid(), date: D(4), start: 9, end: 15, title: "Werk", type: "verplicht" },
+      { id: uid(), date: D(4), start: 9, end: 15, title: "Werk", type: "verplicht", repeat: "week" },
       { id: uid(), date: D(4), start: 20, end: 22, title: "Film kijken", type: "vrij" },
       { id: uid(), date: D(5), start: 11, end: 12.5, title: "Boodschappen", type: "klus" },
       { id: uid(), date: D(5), start: 21, end: 23, title: "Uitgaan", type: "vrij" },
@@ -96,6 +96,35 @@ const freeCap = (evs, d, s) => Math.max(0, awakeOf(s) - loadOf(evs, d));
 const busyAt = (evs, date, h) =>
   onDay(evs, date).filter((e) => e.start < h + 1 && e.end > h)
     .reduce((s, e) => s + Math.min(e.end, h + 1) - Math.max(e.start, h), 0);
+
+/**
+ * Een afspraak met `repeat: "week"` staat één keer in de gegevens, maar hoort
+ * elke week terug te komen. Hier worden die herhalingen uitgeklapt tot losse
+ * afspraken, zodat de rest van het dashboard er niets van hoeft te weten.
+ * `skips` bevat de datums waarop een herhaling is weggehaald of losgetrokken.
+ */
+function klapUit(events, van, tot) {
+  const uit = [];
+  for (const e of events) {
+    if (!e?.date) continue;
+    if (!e.repeat) {
+      if (e.date >= van && e.date <= tot) uit.push({ ...e, reeksId: null });
+      continue;
+    }
+    const eersteDag = parse(e.date);
+    let stap = 0;
+    if (parse(van) > eersteDag) stap = Math.floor(between(e.date, van) / 7);
+    for (let i = Math.max(0, stap); i < stap + 400; i++) {
+      const d = iso(addDays(eersteDag, i * 7));
+      if (d > tot) break;
+      if (d < van) continue;
+      if (e.until && d > e.until) break;
+      if ((e.skips || []).includes(d)) continue;
+      uit.push({ ...e, id: `${e.id}@${d}`, date: d, reeksId: e.id, herhaalt: true });
+    }
+  }
+  return uit;
+}
 
 function findSlot(evs, date, dur, s, earliest) {
   let cursor = Math.max(earliest ?? s.dayStart + 1, s.dayStart + 1);
@@ -185,7 +214,7 @@ function suggest(events, chores, inbox, weekDates, todayIso, s, geleerd = [], ge
         head: `${ev.title} staat op een volle dag`,
         body: `Je werkt ${dayName(d)} ${v} uur. ${cap(dayName(beter))} is rustiger — om ${hhmm(slot)}?`,
         cta: `Naar ${dayName(beter)}`,
-        action: { kind: "move", eventId: ev.id, date: beter, start: slot },
+        action: { kind: "move", ev, date: beter, start: slot },
       });
     }
   }
@@ -286,7 +315,7 @@ function suggest(events, chores, inbox, weekDates, todayIso, s, geleerd = [], ge
           head: `Geen pauze op ${dayName(d)}`,
           body: `${l[i].title} begint direct na ${l[i - 1].title}. Een half uur ertussen scheelt veel.`,
           cta: "Half uur later",
-          action: { kind: "move", eventId: l[i].id, date: d, start: l[i].start + 0.5 },
+          action: { kind: "move", ev: l[i], date: d, start: l[i].start + 0.5 },
         });
       }
     }
@@ -325,6 +354,21 @@ function meldingen(data, todayIso, s, tips) {
       cta: "Zet er iets in",
       action: { kind: "add", date: leeg, start: 10, end: 16, title: "Dagje weg", type: "vrij" },
     });
+  }
+
+  const weekdag = (parse(todayIso).getDay() + 6) % 7;
+  if (weekdag >= 5) {
+    const week = Array.from({ length: 7 }, (_, i) => iso(addDays(parse(todayIso), -(i + 1))));
+    const open = week.flatMap((d) => loadOf(data.events, d) ? [d] : []).length;
+    if (open) {
+      out.push({
+        id: `nudge-afsluiting-${todayIso}`, soort: "duwtje", icon: Check,
+        head: "Je week zit erop",
+        body: "Loop even na wat er echt is doorgegaan. Daar leert het dashboard van, en je ziet meteen wat eronder schoof.",
+        cta: "Week nalopen",
+        action: { kind: "view", view: "afsluiting" },
+      });
+    }
   }
 
   const morgen = iso(addDays(parse(todayIso), 1));
@@ -556,8 +600,46 @@ function WeekChart({ events, weekDates, todayIso, settings }) {
   );
 }
 
-function WeekGrid({ events, weekDates, todayIso, settings, onSelect }) {
+function WeekGrid({ events, weekDates, todayIso, settings, onSelect, onMove }) {
   const rows = settings.dayEnd - settings.dayStart;
+  const vlak = useRef(null);
+  const [sleep, setSleep] = useState(null);
+
+  function begin(e, ev) {
+    if (e.button !== 0) return;
+    setSleep({ ev, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, bewogen: false });
+  }
+
+  useEffect(() => {
+    if (!sleep) return;
+    const breedte = vlak.current ? vlak.current.offsetWidth / 7 : 100;
+
+    const beweeg = (e) => {
+      const dx = e.clientX - sleep.x0, dy = e.clientY - sleep.y0;
+      setSleep((s) => s && { ...s, dx, dy, bewogen: s.bewogen || Math.abs(dx) > 4 || Math.abs(dy) > 4 });
+    };
+    const los = () => {
+      setSleep((s) => {
+        if (!s) return null;
+        if (!s.bewogen) { onSelect(s.ev); return null; }
+        const dagen = Math.round(s.dx / breedte);
+        const uren = Math.round((s.dy / 36) * 4) / 4;
+        const i = weekDates.indexOf(s.ev.date);
+        const doelDag = weekDates[Math.min(6, Math.max(0, (i < 0 ? 0 : i) + dagen))];
+        const duur = s.ev.end - s.ev.start;
+        const nieuw = Math.min(settings.dayEnd - duur, Math.max(settings.dayStart, s.ev.start + uren));
+        if (doelDag !== s.ev.date || Math.abs(nieuw - s.ev.start) > 0.01) onMove(s.ev, doelDag, nieuw);
+        return null;
+      });
+    };
+    window.addEventListener("pointermove", beweeg);
+    window.addEventListener("pointerup", los);
+    return () => {
+      window.removeEventListener("pointermove", beweeg);
+      window.removeEventListener("pointerup", los);
+    };
+  }, [sleep, weekDates, settings, onSelect, onMove]);
+
   return (
     <div className="week">
       <div className="week-hours">
@@ -565,7 +647,7 @@ function WeekGrid({ events, weekDates, todayIso, settings, onSelect }) {
           <div key={i} className="week-hour">{String(settings.dayStart + i).padStart(2, "0")}</div>
         ))}
       </div>
-      <div className="week-days">
+      <div className="week-days" ref={vlak}>
         {weekDates.map((d, i) => (
           <div key={d} style={{ minWidth: 0 }}>
             <div className={`week-daylabel${d === todayIso ? " today" : ""}`}>
@@ -579,17 +661,109 @@ function WeekGrid({ events, weekDates, todayIso, settings, onSelect }) {
                 const t = TYPES[e.type];
                 const top = (Math.max(e.start, settings.dayStart) - settings.dayStart) * 36;
                 const h = Math.max(18, (Math.min(e.end, settings.dayEnd) - Math.max(e.start, settings.dayStart)) * 36 - 3);
+                const actief = sleep?.ev?.id === e.id && sleep.bewogen;
                 return (
-                  <button key={e.id} className="event" onClick={() => onSelect(e)}
-                    style={{ top, height: h, background: t.soft, borderColor: t.line }}>
+                  <div key={e.id} className={`event${actief ? " sleept" : ""}`}
+                    onPointerDown={(ev) => begin(ev, e)}
+                    style={{
+                      top, height: h, background: t.soft, borderColor: t.line,
+                      transform: actief ? `translate(${sleep.dx}px, ${sleep.dy}px)` : undefined,
+                    }}>
                     <div className="event-title">{e.title}</div>
                     {h > 34 && <div className="event-time" style={{ color: t.color }}>{hhmm(e.start)}</div>}
-                  </button>
+                    {e.repeat && <Repeat size={9} className="herhaal-merk" />}
+                  </div>
                 );
               })}
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/* verloop: hoe je laatste acht weken zich verhouden */
+function Verloop({ events, todayIso, weken = 8 }) {
+  const [hover, setHover] = useState(null);
+  const H = 120;
+  const maandag = startOfWeek(parse(todayIso));
+
+  const rijen = Array.from({ length: weken }, (_, i) => {
+    const start = addDays(maandag, -(weken - 1 - i) * 7);
+    const dagen = Array.from({ length: 7 }, (_, d) => iso(addDays(start, d)));
+    const per = Object.keys(TYPES).reduce((acc, t) => {
+      acc[t] = dagen.reduce((s, d) => s + loadOf(events, d, t), 0);
+      return acc;
+    }, {});
+    return {
+      start, label: `${parse(dagen[0]).getDate()}/${parse(dagen[0]).getMonth() + 1}`,
+      per, totaal: per.verplicht + per.vrij + per.klus,
+      nu: dagen.includes(todayIso),
+    };
+  });
+
+  const top = Math.max(8, Math.ceil(Math.max(...rijen.map((r) => r.totaal)) / 5) * 5);
+  const scale = (u) => (u / top) * 88;
+  const ticks = [0, Math.round(top / 2), top];
+
+  const vorige = rijen[weken - 2], deze = rijen[weken - 1];
+  const richting = vorige && vorige.per.vrij ? Math.round(((deze.per.vrij - vorige.per.vrij) / vorige.per.vrij) * 100) : 0;
+
+  return (
+    <div className="inset">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+        <div>
+          <div className="peak-title" style={{ fontSize: 19 }}>{deze.per.vrij.toFixed(1)} uur voor jezelf</div>
+          <p className="peak-sub">
+            {richting === 0 ? "even veel als vorige week"
+              : richting > 0 ? `${richting}% meer dan vorige week`
+              : `${Math.abs(richting)}% minder dan vorige week`}
+          </p>
+        </div>
+      </div>
+      <div className="axis-wrap" style={{ marginTop: 16 }}>
+        <div className="y-axis" style={{ height: H }}>
+          {ticks.map((t) => <span key={t} className="y-label" style={{ bottom: `${scale(t)}%` }}>{t}</span>)}
+        </div>
+        <div className="axis-col">
+          <div className="y-unit">uur per week</div>
+          <div className="chart-area" style={{ height: H }}>
+            <div className="hgrid">
+              {ticks.map((t) => <div key={t} className={`hline${t === 0 ? " base" : ""}`} style={{ bottom: `${scale(t)}%` }} />)}
+            </div>
+            <div className="bars week-bars" style={{ height: H }}>
+              {rijen.map((r, i) => (
+                <div key={i} className="bar" style={{ opacity: r.nu ? 1 : 0.75 }}
+                  onMouseEnter={() => setHover({ i, ...r })} onMouseLeave={() => setHover(null)}>
+                  <div className="bar-stack">
+                    <div className="bar-seg" style={{ height: `${scale(r.per.vrij)}%`, background: TYPES.vrij.chart }} />
+                    <div className="bar-seg" style={{ height: `${scale(r.per.klus)}%`, background: TYPES.klus.chart }} />
+                    <div className="bar-seg" style={{ height: `${scale(r.per.verplicht)}%`, background: TYPES.verplicht.chart }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            {hover && (
+              <Tip x={((hover.i + 0.5) / weken) * 100}>
+                <div className="tip-box-head">Week van {hover.label}{hover.nu ? " · nu" : ""}</div>
+                {Object.entries(TYPES).map(([k, t]) => (
+                  <div key={k} className="tip-box-row">
+                    <span className="type-dot" style={{ background: t.color }} />{t.label}
+                    <span className="tip-box-meta">{hover.per[k].toFixed(1)} u</span>
+                  </div>
+                ))}
+              </Tip>
+            )}
+          </div>
+          <div className="hour-labels">
+            {rijen.map((r, i) => (
+              <div key={i} className="hour-label" style={{ color: r.nu ? "var(--fg)" : undefined }}>
+                {i % 2 === 0 || r.nu ? r.label : ""}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -784,6 +958,11 @@ function EventForm({ value, onChange, onZoek }) {
         <input className="input" style={{ flex: 1 }} type="time" value={value.end}
           onChange={(e) => onChange({ ...value, end: e.target.value })} />
       </div>
+      <label className="herhaal">
+        <input type="checkbox" checked={!!value.repeat}
+          onChange={(e) => onChange({ ...value, repeat: e.target.checked ? "week" : null })} />
+        <span>Elke week op {value.date ? FULL[(parse(value.date).getDay() + 6) % 7] : "deze dag"}</span>
+      </label>
       {onZoek && value.type !== "verplicht" && (
         <button className="btn" style={{ justifyContent: "center" }} onClick={onZoek}>
           <Wand2 size={13} /> Zoek een moment voor me
@@ -864,6 +1043,89 @@ function ProfielForm({ profile, user, onChange, onEmail, onWachtwoord }) {
   );
 }
 
+/* zondagse blik terug: wat stond er, en wat is er echt gebeurd */
+function Weekafsluiting({ events, todayIso, gedaan, sleutelVan, onZet }) {
+  const eind = addDays(parse(todayIso), -1);
+  const dagen = Array.from({ length: 7 }, (_, i) => iso(addDays(eind, -(6 - i))));
+  const lijst = dagen.flatMap((d) => onDay(events, d));
+  const beoordeeld = lijst.filter((e) => gedaan[sleutelVan(e)] !== undefined).length;
+
+  const som = (t, filter) => lijst
+    .filter((e) => e.type === t && filter(gedaan[sleutelVan(e)]))
+    .reduce((s, e) => s + hoursOf(e), 0);
+  const gepland = Object.keys(TYPES).map((t) => ({ t, u: som(t, () => true) }));
+  const gelukt = Object.keys(TYPES).map((t) => ({ t, u: som(t, (v) => v !== false) }));
+
+  return (
+    <div className="grid-main">
+      <Card icon={Check} title="De afgelopen zeven dagen"
+        action={<span className="dim" style={{ fontSize: 11.5 }}>{beoordeeld} van {lijst.length} nagelopen</span>}>
+        {lijst.length === 0 ? (
+          <div className="dim" style={{ fontSize: 13 }}>Er stond niets in je agenda deze week.</div>
+        ) : (
+          <div className="afsluit-lijst">
+            {dagen.map((d) => {
+              const opDag = onDay(events, d);
+              if (!opDag.length) return null;
+              return (
+                <div key={d} className="afsluit-dag">
+                  <div className="afsluit-kop">{cap(dayName(d))} {parse(d).getDate()}</div>
+                  {opDag.map((e) => {
+                    const stand = gedaan[sleutelVan(e)];
+                    return (
+                      <div key={e.id} className={`afsluit-rij${stand === false ? " uit" : ""}`}>
+                        <span className="type-dot" style={{ background: TYPES[e.type].color }} />
+                        <span className="afsluit-titel">{e.title}</span>
+                        <span className="chore-meta">{hhmm(e.start)}</span>
+                        <div className="afsluit-knoppen">
+                          <button className={`vink${stand === true ? " aan" : ""}`} title="Ging door"
+                            onClick={() => onZet(e, stand === true ? undefined : true)}>
+                            <Check size={12} strokeWidth={3} />
+                          </button>
+                          <button className={`vink kruis${stand === false ? " aan" : ""}`} title="Ging niet door"
+                            onClick={() => onZet(e, stand === false ? undefined : false)}>
+                            <X size={12} strokeWidth={3} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      <Card icon={BarChart3} title="Wat het opleverde" action={<span />}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {gepland.map(({ t, u }, i) => {
+            const echtU = gelukt[i].u;
+            const pct = u ? Math.round((echtU / u) * 100) : 100;
+            return (
+              <div key={t}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 8 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="type-dot" style={{ background: TYPES[t].color }} />{TYPES[t].label}
+                  </span>
+                  <span className="chore-meta">{echtU.toFixed(1)} van {u.toFixed(1)} u</span>
+                </div>
+                <div className="track">
+                  <div className="track-fill" style={{ width: `${pct}%`, background: TYPES[t].chart }} />
+                </div>
+              </div>
+            );
+          })}
+          <p className="setting-hint" style={{ marginTop: 4 }}>
+            Wat je hier wegstreept telt niet mee bij je gewoontes. Zo leert het dashboard van wat je
+            werkelijk deed, niet van wat je van plan was.
+          </p>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 /* =================================== app =================================== */
 
 export default function Dashboard() {
@@ -897,6 +1159,16 @@ export default function Dashboard() {
   const settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
   const weekStart = startOfWeek(addDays(today, offset * 7));
   const weekDates = Array.from({ length: 7 }, (_, i) => iso(addDays(weekStart, i)));
+
+  // herhalingen uitklappen; `echt` laat weg wat je bij de weekafsluiting hebt afgevinkt als niet gebeurd
+  const gedaan = data.gedaan || {};
+  const sleutelVan = (e) => `${e.reeksId || e.id}|${e.date}`;
+  const zicht = useMemo(() => {
+    const van = iso(addDays(parse(todayIso), -77));
+    const tot = iso(addDays(parse(weekDates[6]), 28));
+    return klapUit(data.events, van, tot);
+  }, [data.events, weekDates[6], todayIso]);
+  const echt = useMemo(() => zicht.filter((e) => gedaan[sleutelVan(e)] !== false), [zicht, data.gedaan]);
 
   useEffect(() => {
     let actief = true;
@@ -940,15 +1212,15 @@ export default function Dashboard() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const geleerd = useMemo(() => patronen(data.events, todayIso), [data.events, todayIso]);
+  const geleerd = useMemo(() => patronen(echt, todayIso), [echt, todayIso]);
   const genegeerd = data.genegeerd || [];
   const tips = useMemo(
-    () => suggest(data.events, data.chores, data.inbox, weekDates, todayIso, settings, geleerd, genegeerd)
+    () => suggest(zicht, data.chores, data.inbox, weekDates, todayIso, settings, geleerd, genegeerd)
       .filter((s) => !dismissed.includes(s.id)),
     [data, weekDates.join(","), dismissed, todayIso, geleerd]
   );
   const alleMeldingen = useMemo(
-    () => meldingen(data, todayIso, settings, tips).filter((m) => !dismissed.includes(m.id)),
+    () => meldingen({ ...data, events: zicht }, todayIso, settings, tips).filter((m) => !dismissed.includes(m.id)),
     [data, tips, dismissed, todayIso]
   );
 
@@ -957,12 +1229,14 @@ export default function Dashboard() {
   function accept(s) {
     const a = s.action;
     if (!a) { setDismissed((d) => [...d, s.id]); return; }
+    if (a.kind === "view") { setView(a.view); setBelOpen(false); setDismissed((d) => [...d, s.id]); return; }
+    if (a.kind === "move") {
+      verplaats(a.ev, a.date, a.start);
+      setDismissed((d) => [...d, s.id]);
+      flash("Verplaatst");
+      return;
+    }
     setData((p) => {
-      if (a.kind === "move") {
-        const ev = p.events.find((e) => e.id === a.eventId);
-        const dur = hoursOf(ev);
-        return { ...p, events: p.events.map((e) => e.id === a.eventId ? { ...e, date: a.date, start: a.start, end: a.start + dur } : e) };
-      }
       if (a.kind === "inbox") {
         return {
           ...p,
@@ -981,7 +1255,7 @@ export default function Dashboard() {
 
   function openQuick(type = "vrij") {
     const dur = type === "vrij" ? 1.5 : 1;
-    const voorstel = bestSlot(data.events, weekDates, todayIso, settings, dur, type === "vrij" ? 17 : 9);
+    const voorstel = bestSlot(zicht, weekDates, todayIso, settings, dur, type === "vrij" ? 17 : 9);
     setDraft({
       title: "", type,
       date: voorstel ? voorstel.date : todayIso,
@@ -992,7 +1266,7 @@ export default function Dashboard() {
   }
   function zoekMoment(d, setter) {
     const dur = Math.max(0.5, toH(d.end) - toH(d.start));
-    const voorstel = bestSlot(data.events, weekDates, todayIso, settings, dur, d.type === "vrij" ? 17 : 9);
+    const voorstel = bestSlot(zicht, weekDates, todayIso, settings, dur, d.type === "vrij" ? 17 : 9);
     if (!voorstel) { flash("Deze week is er geen ruimte voor"); return; }
     setter({ ...d, date: voorstel.date, start: hhmm(voorstel.start), end: hhmm(voorstel.start + dur) });
     flash(`Voorstel: ${dayName(voorstel.date)} om ${hhmm(voorstel.start)}`);
@@ -1012,21 +1286,67 @@ export default function Dashboard() {
 
   function addEvent(close) {
     if (!draft.title.trim()) return;
-    setData((p) => ({ ...p, events: [...p.events, { id: uid(), date: draft.date, start: toH(draft.start), end: toH(draft.end), title: draft.title.trim(), type: draft.type }] }));
+    setData((p) => ({ ...p, events: [...p.events, {
+      id: uid(), date: draft.date, start: toH(draft.start), end: toH(draft.end),
+      title: draft.title.trim(), type: draft.type, ...(draft.repeat ? { repeat: "week" } : {}),
+    }] }));
     setDraft({ ...draft, title: "" });
     if (close) setQuickOpen(false);
     flash(`Staat op ${dayName(draft.date)} ${parse(draft.date).getDate()}`);
   }
 
-  function saveEdit() {
-    setData((p) => ({
-      ...p,
-      events: p.events.map((e) => e.id === edit.id
-        ? { ...e, title: edit.title.trim() || e.title, type: edit.type, date: edit.date, start: toH(edit.start), end: toH(edit.end) }
-        : e),
-    }));
+  /** past een afspraak aan; `hele` bepaalt of de hele wekelijkse reeks meegaat */
+  function pasAan(instantie, velden, hele) {
+    const basisId = instantie.reeksId || instantie.id;
+    setData((p) => {
+      const basis = p.events.find((e) => e.id === basisId);
+      if (!basis) return p;
+      if (hele || !basis.repeat) {
+        return { ...p, events: p.events.map((e) => e.id === basisId ? { ...e, ...velden } : e) };
+      }
+      const los = { id: uid(), ...velden, choreId: basis.choreId };
+      return {
+        ...p,
+        events: p.events
+          .map((e) => e.id === basisId ? { ...e, skips: [...(e.skips || []), instantie.date] } : e)
+          .concat(los),
+      };
+    });
+  }
+
+  function verwijder(instantie, hele) {
+    const basisId = instantie.reeksId || instantie.id;
+    setData((p) => {
+      const basis = p.events.find((e) => e.id === basisId);
+      if (!basis) return { ...p, events: p.events.filter((e) => e.id !== basisId) };
+      if (hele || !basis.repeat) return { ...p, events: p.events.filter((e) => e.id !== basisId) };
+      return {
+        ...p,
+        events: p.events.map((e) => e.id === basisId
+          ? { ...e, skips: [...(e.skips || []), instantie.date] } : e),
+      };
+    });
+  }
+
+  function verplaats(instantie, date, start) {
+    const dur = hoursOf(instantie);
+    pasAan(instantie, {
+      title: instantie.title, type: instantie.type, date, start, end: start + dur,
+      repeat: null, skips: undefined, until: undefined,
+    }, false);
+  }
+
+  function saveEdit(hele) {
+    pasAan(edit.bron, {
+      title: edit.title.trim() || edit.bron.title,
+      type: edit.type,
+      date: hele ? edit.date : edit.date,
+      start: toH(edit.start),
+      end: toH(edit.end),
+      repeat: edit.repeat || null,
+    }, hele);
     setEdit(null); setSelected(null);
-    flash("Wijziging opgeslagen");
+    flash(hele ? "Hele reeks aangepast" : "Wijziging opgeslagen");
   }
 
   function choreDone(c) {
@@ -1043,7 +1363,7 @@ export default function Dashboard() {
     flash("In je opvangbak gezet");
   }
   function planInbox(item) {
-    const doel = bestSlot(data.events, weekDates, todayIso, settings, item.dur, 9);
+    const doel = bestSlot(zicht, weekDates, todayIso, settings, item.dur, 9);
     if (!doel) { flash("Deze week is er geen ruimte voor"); return; }
     setData((p) => ({
       ...p,
@@ -1056,7 +1376,7 @@ export default function Dashboard() {
   const setSetting = (k, v) => setData((p) => ({ ...p, settings: { ...settings, [k]: v } }));
 
   function exportIcs() {
-    const ics = buildIcs(data.events, profile.name ? `Dashboard van ${profile.name}` : "Dashboard");
+    const ics = buildIcs(zicht, profile.name ? `Dashboard van ${profile.name}` : "Dashboard");
     const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
     const a = document.createElement("a");
     a.href = url; a.download = "dashboard.ics"; a.click();
@@ -1116,18 +1436,18 @@ export default function Dashboard() {
     router.replace("/login");
   }
 
-  const verplichtWeek = weekDates.reduce((s, d) => s + loadOf(data.events, d, "verplicht"), 0);
-  const vrijWeek = weekDates.reduce((s, d) => s + loadOf(data.events, d, "vrij"), 0);
-  const klusWeek = weekDates.reduce((s, d) => s + loadOf(data.events, d, "klus"), 0);
+  const verplichtWeek = weekDates.reduce((s, d) => s + loadOf(zicht, d, "verplicht"), 0);
+  const vrijWeek = weekDates.reduce((s, d) => s + loadOf(zicht, d, "vrij"), 0);
+  const klusWeek = weekDates.reduce((s, d) => s + loadOf(zicht, d, "klus"), 0);
   const achter = data.chores.filter((c) => between(c.last, todayIso) > c.every).length;
   const balans = verplichtWeek + vrijWeek ? Math.round((vrijWeek / (verplichtWeek + vrijWeek)) * 100) : 0;
-  const bezetVandaag = loadOf(data.events, todayIso);
-  const bezetGisteren = loadOf(data.events, yesterdayIso);
+  const bezetVandaag = loadOf(zicht, todayIso);
+  const bezetGisteren = loadOf(zicht, yesterdayIso);
   const awake = awakeOf(settings);
   const pct = Math.round((bezetVandaag / awake) * 100);
   const verschil = bezetGisteren ? Math.round(((bezetVandaag - bezetGisteren) / bezetGisteren) * 100) : 0;
-  const drukste = weekDates.reduce((a, b) => loadOf(data.events, a, "verplicht") >= loadOf(data.events, b, "verplicht") ? a : b);
-  const rustigste = weekDates.reduce((a, b) => freeCap(data.events, a, settings) >= freeCap(data.events, b, settings) ? a : b);
+  const drukste = weekDates.reduce((a, b) => loadOf(zicht, a, "verplicht") >= loadOf(zicht, b, "verplicht") ? a : b);
+  const rustigste = weekDates.reduce((a, b) => freeCap(zicht, a, settings) >= freeCap(zicht, b, settings) ? a : b);
 
   const nav = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -1136,13 +1456,14 @@ export default function Dashboard() {
     { id: "ritme", label: "Ritme", icon: BarChart3 },
     { id: "opvangbak", label: "Opvangbak", icon: Inbox },
     { id: "patronen", label: "Gewoontes", icon: Repeat },
+    { id: "afsluiting", label: "Week nalopen", icon: Check },
     { id: "koppelingen", label: "Koppelingen", icon: Plug },
   ];
 
   const q = query.trim().toLowerCase();
   const paletteViews = [...nav, { id: "profiel", label: "Profiel", icon: Settings }, { id: "hulp", label: "Hulp", icon: LifeBuoy }, { id: "instellingen", label: "Instellingen", icon: Settings }]
     .filter((n) => !q || n.label.toLowerCase().includes(q));
-  const paletteEvents = data.events.filter((e) => q && e.title.toLowerCase().includes(q)).slice(0, 6);
+  const paletteEvents = zicht.filter((e) => q && e.title.toLowerCase().includes(q)).slice(0, 6);
   const paletteChores = data.chores.filter((c) => q && c.name.toLowerCase().includes(q)).slice(0, 5);
   const openView = (id) => { setView(id); setPaletteOpen(false); };
 
@@ -1236,6 +1557,17 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <nav className="mobilenav">
+        {nav.map((n) => (
+          <button key={n.id} className={`mob-item${view === n.id ? " active" : ""}`} onClick={() => setView(n.id)}>
+            <n.icon size={14} strokeWidth={1.8} />{n.label}
+          </button>
+        ))}
+        <button className={`mob-item${view === "instellingen" ? " active" : ""}`} onClick={() => setView("instellingen")}>
+          <Settings size={14} strokeWidth={1.8} />Instellingen
+        </button>
+      </nav>
+
       <div className="shell">
         <aside className={`sidebar${compact ? " compact" : ""}`}>
           <button className="search" onClick={() => { setQuery(""); setPaletteOpen(true); }}>
@@ -1327,8 +1659,8 @@ export default function Dashboard() {
                       </div>
                     </div>
                     {chartMode === "dag"
-                      ? <DayChart events={data.events} date={todayIso} settings={settings} isToday />
-                      : <WeekChart events={data.events} weekDates={weekDates} todayIso={todayIso} settings={settings} />}
+                      ? <DayChart events={zicht} date={todayIso} settings={settings} isToday />
+                      : <WeekChart events={zicht} weekDates={weekDates} todayIso={todayIso} settings={settings} />}
                     <div className="chart-key">
                       {Object.entries(TYPES).map(([k, t]) => (
                         <span key={k}><span className="type-dot" style={{ background: t.color }} />{t.label}</span>
@@ -1338,6 +1670,9 @@ export default function Dashboard() {
                 </Card>
 
                 <div className="stack">
+                  <Card icon={TrendingUp} title="Verloop">
+                    <Verloop events={zicht} todayIso={todayIso} />
+                  </Card>
                   <Card icon={PieChart} title="Ruimte vandaag">
                     <div className="inset">
                       <div className="split">
@@ -1358,25 +1693,25 @@ export default function Dashboard() {
                           <div className="usage-marker" style={{ left: `${Math.min(100, pct)}%` }} />
                         </div>
                         <div className="usage-foot">
-                          <span>{loadOf(data.events, todayIso, "verplicht")} u verplicht</span>
-                          <span>{loadOf(data.events, todayIso, "vrij")} u vrij</span>
+                          <span>{loadOf(zicht, todayIso, "verplicht")} u verplicht</span>
+                          <span>{loadOf(zicht, todayIso, "vrij")} u vrij</span>
                         </div>
                       </div>
                     </div>
                   </Card>
                   <Card icon={Clock} title="Piekuren">
-                    <PeakHours events={data.events} weekDates={weekDates} settings={settings} />
+                    <PeakHours events={zicht} weekDates={weekDates} settings={settings} />
                   </Card>
                 </div>
               </div>
 
               <div className="grid-main" style={{ marginTop: 12 }}>
                 <Card icon={Calendar} title="Vandaag ingepland" action={<span />}>
-                  {onDay(data.events, todayIso).length === 0 ? (
+                  {onDay(zicht, todayIso).length === 0 ? (
                     <div className="dim" style={{ fontSize: 13 }}>Niets gepland. De hele dag is van jou.</div>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                      {onDay(data.events, todayIso).map((e) => (
+                      {onDay(zicht, todayIso).map((e) => (
                         <button key={e.id} className="row-item" onClick={() => setSelected(e)}>
                           <span className="row-time">{hhmm(e.start)} – {hhmm(e.end)}</span>
                           <span className="type-dot" style={{ background: TYPES[e.type].color }} />
@@ -1436,7 +1771,8 @@ export default function Dashboard() {
                     ))}
                   </div>
                 }>
-                <WeekGrid events={data.events} weekDates={weekDates} todayIso={todayIso} settings={settings} onSelect={setSelected} />
+                <WeekGrid events={zicht} weekDates={weekDates} todayIso={todayIso} settings={settings}
+                  onSelect={setSelected} onMove={(ev, d, s) => { verplaats(ev, d, s); flash(`${cap(dayName(d))} om ${hhmm(s)}`); }} />
               </Card>
             </>
           )}
@@ -1484,11 +1820,11 @@ export default function Dashboard() {
           {view === "ritme" && (
             <div className="grid-half" style={{ marginTop: 24 }}>
               <Card icon={BarChart3} title="Verplicht tegenover vrij" action={<span />}>
-                <WeekChart events={data.events} weekDates={weekDates} todayIso={todayIso} settings={settings} />
+                <WeekChart events={zicht} weekDates={weekDates} todayIso={todayIso} settings={settings} />
               </Card>
               <Card icon={Clock} title="Wat opvalt" action={<span />}>
                 <ul className="insight-list">
-                  <li>Zwaarste dag: <b>{cap(dayName(drukste))}</b> met {loadOf(data.events, drukste, "verplicht")} verplichte uren.</li>
+                  <li>Zwaarste dag: <b>{cap(dayName(drukste))}</b> met {loadOf(zicht, drukste, "verplicht")} verplichte uren.</li>
                   <li>Rustigste dag: <b>{cap(dayName(rustigste))}</b> — goede plek voor sport of klussen.</li>
                   <li>Deze week: <b>{verplichtWeek} u verplicht</b>, <b>{vrijWeek} u vrij</b>, <b>{klusWeek} u huishouden</b>.</li>
                   <li>{achter ? `${achter} klus${achter > 1 ? "sen" : ""} over tijd.` : "Het huishouden loopt op schema."}</li>
@@ -1641,6 +1977,18 @@ export default function Dashboard() {
                   </div>
                 </div>
               </Card>
+            </div>
+          )}
+
+          {view === "afsluiting" && (
+            <div style={{ marginTop: 24 }}>
+              <Weekafsluiting events={zicht} todayIso={todayIso} gedaan={gedaan} sleutelVan={sleutelVan}
+                onZet={(e, waarde) => setData((p) => {
+                  const g = { ...(p.gedaan || {}) };
+                  if (waarde === undefined) delete g[sleutelVan(e)];
+                  else g[sleutelVan(e)] = waarde;
+                  return { ...p, gedaan: g };
+                })} />
             </div>
           )}
 
@@ -1824,19 +2172,28 @@ export default function Dashboard() {
               </div>
               <button className="icon-dim" onClick={() => setSelected(null)}><X size={16} /></button>
             </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 20, flexWrap: "wrap" }}>
+            {selected.repeat && (
+              <div className="reeks-merk"><Repeat size={12} /> Onderdeel van een wekelijkse reeks</div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 18, flexWrap: "wrap" }}>
               <button className="btn-primary" onClick={() => setEdit({
-                id: selected.id, title: selected.title, type: selected.type,
+                bron: selected, title: selected.title, type: selected.type, repeat: selected.repeat || null,
                 date: selected.date, start: hhmm(selected.start), end: hhmm(selected.end),
               })}>Bewerken</button>
               <button className="btn" onClick={() => {
-                setData((p) => ({ ...p, events: p.events.map((e) => e.id === selected.id ? { ...e, date: iso(addDays(parse(e.date), 1)) } : e) }));
+                verplaats(selected, iso(addDays(parse(selected.date), 1)), selected.start);
                 setSelected(null); flash("Dag opgeschoven");
               }}>Dag later</button>
               <button className="btn danger" onClick={() => {
-                setData((p) => ({ ...p, events: p.events.filter((e) => e.id !== selected.id) }));
-                setSelected(null); flash("Verwijderd");
-              }}>Verwijderen</button>
+                verwijder(selected, false);
+                setSelected(null); flash(selected.repeat ? "Deze keer overgeslagen" : "Verwijderd");
+              }}>{selected.repeat ? "Sla deze over" : "Verwijderen"}</button>
+              {selected.repeat && (
+                <button className="btn danger" onClick={() => {
+                  verwijder(selected, true);
+                  setSelected(null); flash("Hele reeks verwijderd");
+                }}>Stop de reeks</button>
+              )}
             </div>
           </div>
         </div>
@@ -1851,14 +2208,27 @@ export default function Dashboard() {
             </div>
             <div style={{ marginTop: 16 }}>
               <EventForm value={edit} onChange={setEdit} onZoek={() => zoekMoment(edit, setEdit)} />
-              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button className="btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={saveEdit}>Opslaan</button>
-                <button className="btn" onClick={() => setEdit(null)}>Annuleren</button>
-              </div>
+              {edit.bron?.repeat ? (
+                <>
+                  <div className="reeks-keuze">
+                    <button className="btn-primary" onClick={() => saveEdit(false)}>Alleen deze keer</button>
+                    <button className="btn" onClick={() => saveEdit(true)}>Hele reeks</button>
+                  </div>
+                  <button className="btn" style={{ width: "100%", justifyContent: "center", marginTop: 8 }}
+                    onClick={() => setEdit(null)}>Annuleren</button>
+                </>
+              ) : (
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                  <button className="btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={() => saveEdit(false)}>Opslaan</button>
+                  <button className="btn" onClick={() => setEdit(null)}>Annuleren</button>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
+
+      <button className="fab" onClick={() => openQuick()} title="Snel toevoegen"><Plus size={20} /></button>
 
       {toast && <div className="toast">{toast}</div>}
     </div>
