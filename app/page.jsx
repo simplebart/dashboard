@@ -23,7 +23,7 @@ export const TYPES = {
 
 const DAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"];
 const FULL = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"];
-const DEFAULT_SETTINGS = { dayStart: 7, dayEnd: 23, fullDay: 9, minVrij: 6 };
+const DEFAULT_SETTINGS = { dayStart: 7, dayEnd: 23, fullDay: 9, minVrij: 6, terugtellen: false };
 const SPORT = /gym|sport|hardlop|rennen|zwem|fitness|training|voetbal|tennis|fiets|yoga|padel/i;
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -103,7 +103,7 @@ const busyAt = (evs, date, h) =>
  * afspraken, zodat de rest van het dashboard er niets van hoeft te weten.
  * `skips` bevat de datums waarop een herhaling is weggehaald of losgetrokken.
  */
-function klapUit(events, van, tot) {
+function klapUit(events, van, tot, terug = false) {
   const uit = [];
   for (const e of events) {
     if (!e?.date) continue;
@@ -114,10 +114,14 @@ function klapUit(events, van, tot) {
     const eersteDag = parse(e.date);
     let stap = 0;
     if (parse(van) > eersteDag) stap = Math.floor(between(e.date, van) / 7);
-    for (let i = Math.max(0, stap); i < stap + 400; i++) {
+    // met `terug` loopt een wekelijkse afspraak ook door in de weken vóór zijn begindatum,
+    // handig als iets al veel langer zo gaat dan sinds vandaag
+    const eerste = terug ? Math.floor(between(e.date, van) / 7) : Math.max(0, stap);
+    for (let i = eerste; i < eerste + 400; i++) {
       const d = iso(addDays(eersteDag, i * 7));
       if (d > tot) break;
       if (d < van) continue;
+      if (!terug && d < e.date) continue;
       if (e.until && d > e.until) break;
       if ((e.skips || []).includes(d)) continue;
       uit.push({ ...e, id: `${e.id}@${d}`, date: d, reeksId: e.id, herhaalt: true });
@@ -707,6 +711,7 @@ function Verloop({ events, todayIso, weken = 8 }) {
   const scale = (u) => (u / top) * 88;
   const ticks = [0, Math.round(top / 2), top];
 
+  const gevuld = rijen.filter((r) => r.totaal > 0).length;
   const vorige = rijen[weken - 2], deze = rijen[weken - 1];
   const richting = vorige && vorige.per.vrij ? Math.round(((deze.per.vrij - vorige.per.vrij) / vorige.per.vrij) * 100) : 0;
 
@@ -716,7 +721,9 @@ function Verloop({ events, todayIso, weken = 8 }) {
         <div>
           <div className="peak-title" style={{ fontSize: 19 }}>{deze.per.vrij.toFixed(1)} uur voor jezelf</div>
           <p className="peak-sub">
-            {richting === 0 ? "even veel als vorige week"
+            {gevuld <= 1
+              ? "Nog geen weken om mee te vergelijken"
+              : richting === 0 ? "even veel als vorige week"
               : richting > 0 ? `${richting}% meer dan vorige week`
               : `${Math.abs(richting)}% minder dan vorige week`}
           </p>
@@ -736,6 +743,7 @@ function Verloop({ events, todayIso, weken = 8 }) {
               {rijen.map((r, i) => (
                 <div key={i} className="bar" style={{ opacity: r.nu ? 1 : 0.75 }}
                   onMouseEnter={() => setHover({ i, ...r })} onMouseLeave={() => setHover(null)}>
+                  {r.totaal === 0 && <div className="leeg-merk" />}
                   <div className="bar-stack">
                     <div className="bar-seg" style={{ height: `${scale(r.per.vrij)}%`, background: TYPES.vrij.chart }} />
                     <div className="bar-seg" style={{ height: `${scale(r.per.klus)}%`, background: TYPES.klus.chart }} />
@@ -765,6 +773,13 @@ function Verloop({ events, todayIso, weken = 8 }) {
           </div>
         </div>
       </div>
+      {gevuld < weken && (
+        <p className="setting-hint" style={{ marginTop: 12 }}>
+          {gevuld <= 1
+            ? "Deze grafiek vult zichzelf naarmate je weken verstrijken. Gaat iets al langer zo? Zet dan bij Instellingen het terugtellen van wekelijkse afspraken aan."
+            : `${weken - gevuld} van de ${weken} weken zijn nog leeg — de streepjes onderaan.`}
+        </p>
+      )}
     </div>
   );
 }
@@ -1166,8 +1181,8 @@ export default function Dashboard() {
   const zicht = useMemo(() => {
     const van = iso(addDays(parse(todayIso), -77));
     const tot = iso(addDays(parse(weekDates[6]), 28));
-    return klapUit(data.events, van, tot);
-  }, [data.events, weekDates[6], todayIso]);
+    return klapUit(data.events, van, tot, settings.terugtellen);
+  }, [data.events, weekDates[6], todayIso, settings.terugtellen]);
   const echt = useMemo(() => zicht.filter((e) => gedaan[sleutelVan(e)] !== false), [zicht, data.gedaan]);
 
   useEffect(() => {
@@ -1858,6 +1873,21 @@ export default function Dashboard() {
                     <input className="input" type="number" min="4" max="16" value={settings.fullDay}
                       onChange={(e) => setSetting("fullDay", +e.target.value)} />
                     <span className="dim">uur</span>
+                  </div>
+                </div>
+                <div className="setting">
+                  <div>
+                    <div className="setting-label">Wekelijkse afspraken terugtellen</div>
+                    <div className="setting-hint">
+                      Laat een wekelijkse afspraak ook meetellen in de weken vóór de dag dat je hem invoerde.
+                      Handig als iets al veel langer zo gaat: je verloop en je gewoontes zijn dan meteen gevuld.
+                    </div>
+                  </div>
+                  <div className="setting-control">
+                    <button className={`btn btn-sm${settings.terugtellen ? " aan" : ""}`}
+                      onClick={() => setSetting("terugtellen", !settings.terugtellen)}>
+                      {settings.terugtellen ? "Staat aan" : "Staat uit"}
+                    </button>
                   </div>
                 </div>
                 <div className="setting">
