@@ -1007,18 +1007,19 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
     flash("Open het bestand om het aan Apple Agenda toe te voegen");
   }
-  function feedAdres() {
+  function feedAdres(soort) {
     let token = data.feedToken;
     if (!token) {
       token = Array.from({ length: 5 }, () => Math.random().toString(36).slice(2, 8)).join("");
       setData((p) => ({ ...p, feedToken: token }));
     }
     const host = typeof window !== "undefined" ? window.location.host : "";
-    return `webcal://${host}/api/agenda/${token}.ics`;
+    const staart = soort ? `?soort=${soort}` : "";
+    return `webcal://${host}/api/agenda/${token}.ics${staart}`;
   }
-  async function kopieerFeed() {
-    const adres = feedAdres();
-    try { await navigator.clipboard.writeText(adres); flash("Adres gekopieerd"); }
+  async function kopieerFeed(soort) {
+    const adres = feedAdres(soort);
+    try { await navigator.clipboard.writeText(adres); flash(soort ? `Adres voor ${TYPES[soort].label} gekopieerd` : "Adres gekopieerd"); }
     catch { flash(adres); }
   }
 
@@ -1546,7 +1547,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="setting">
-                  <div>
+                  <div style={{ width: "100%" }}>
                     <div className="setting-label">Live meekijken</div>
                     <div className="setting-hint">
                       {user
@@ -1554,11 +1555,20 @@ export default function Dashboard() {
                         : "Hiervoor moet je ingelogd zijn, want de feed haalt je week uit de database."}
                     </div>
                     {user && <code className="feed">{data.feedToken ? feedAdres() : "adres wordt aangemaakt zodra je kopieert"}</code>}
-                  </div>
-                  <div className="setting-control">
-                    <button className="btn btn-sm" disabled={!user} onClick={kopieerFeed}>
-                      <Copy size={13} /> Kopieer adres
-                    </button>
+                    <div className="feed-knoppen">
+                      <button className="btn btn-sm" disabled={!user} onClick={() => kopieerFeed()}>
+                        <Copy size={13} /> Alles
+                      </button>
+                      {Object.entries(TYPES).map(([k, t]) => (
+                        <button key={k} className="btn btn-sm" disabled={!user} onClick={() => kopieerFeed(k)}>
+                          <span className="type-dot" style={{ background: t.color }} /> {t.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="setting-hint" style={{ marginTop: 10 }}>
+                      Eén abonnement krijgt in Apple Agenda één kleur. Wil je kleur per soort, abonneer je dan
+                      op de drie losse adressen in plaats van op Alles — dan geef je elke agenda daar zijn eigen kleur.
+                    </div>
                   </div>
                 </div>
                 <div className="setting">
