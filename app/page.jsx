@@ -687,6 +687,82 @@ function WeekGrid({ events, weekDates, todayIso, settings, onSelect, onMove }) {
   );
 }
 
+/* de dag als één strook: waar zit je vast en waar is ruimte */
+function DagStrook({ events, date, settings, todayIso, onPlan }) {
+  const van = settings.dayStart, tot = settings.dayEnd;
+  const breed = tot - van;
+  const lijst = onDay(events, date);
+  const pct = (u) => ((u - van) / breed) * 100;
+
+  // gaten zoeken tussen de afspraken
+  const gaten = [];
+  let cursor = van;
+  for (const e of lijst) {
+    if (e.start - cursor >= 0.5) gaten.push({ start: cursor, end: e.start });
+    cursor = Math.max(cursor, e.end);
+  }
+  if (tot - cursor >= 0.5) gaten.push({ start: cursor, end: tot });
+
+  const nu = new Date();
+  const nuPct = pct(nu.getHours() + nu.getMinutes() / 60);
+  const grootste = [...gaten].sort((a, b) => (b.end - b.start) - (a.end - a.start)).slice(0, 3)
+    .sort((a, b) => a.start - b.start);
+  const vrij = gaten.reduce((s, g) => s + (g.end - g.start), 0);
+
+  return (
+    <div className="inset strook-kaart">
+      <div className="strook-kop">
+        <div>
+          <div className="peak-title" style={{ fontSize: 19 }}>{vrij.toFixed(1)} uur ruimte</div>
+          <p className="peak-sub">
+            {lijst.length === 0 ? "Je hele dag is nog vrij" : `verdeeld over ${gaten.length} ${gaten.length === 1 ? "gat" : "gaten"}`}
+          </p>
+        </div>
+      </div>
+
+      <div className="strook">
+        {gaten.map((g, i) => (
+          <button key={`g${i}`} className="strook-gat" title={`${hhmm(g.start)} – ${hhmm(g.end)} vrij`}
+            onClick={() => onPlan(date, g.start, Math.min(g.end - g.start, 2))}
+            style={{ left: `${pct(g.start)}%`, width: `${((g.end - g.start) / breed) * 100}%` }}>
+            {g.end - g.start >= 1.5 && <span>{(g.end - g.start).toFixed(1)}u</span>}
+          </button>
+        ))}
+        {lijst.map((e) => (
+          <div key={e.id} className="strook-blok" title={`${e.title} · ${hhmm(e.start)}–${hhmm(e.end)}`}
+            style={{
+              left: `${pct(Math.max(e.start, van))}%`,
+              width: `${((Math.min(e.end, tot) - Math.max(e.start, van)) / breed) * 100}%`,
+              background: TYPES[e.type].chart,
+            }}>
+            {e.end - e.start >= 1.5 && <span>{e.title}</span>}
+          </div>
+        ))}
+        {date === todayIso && nuPct >= 0 && nuPct <= 100 && (
+          <div className="strook-nu" style={{ left: `${nuPct}%` }} />
+        )}
+      </div>
+      <div className="strook-schaal">
+        {[van, Math.round((van + tot) / 2), tot].map((u) => (
+          <span key={u}>{String(u).padStart(2, "0")}:00</span>
+        ))}
+      </div>
+
+      <div className="gat-lijst">
+        {grootste.length === 0 ? (
+          <div className="dim" style={{ fontSize: 12.5 }}>Geen ruimte meer vandaag.</div>
+        ) : grootste.map((g, i) => (
+          <button key={i} className="gat-rij" onClick={() => onPlan(date, g.start, Math.min(g.end - g.start, 2))}>
+            <span className="gat-tijd">{hhmm(g.start)} – {hhmm(g.end)}</span>
+            <span className="gat-duur">{(g.end - g.start).toFixed(1)} uur vrij</span>
+            <span className="gat-actie"><Plus size={12} /> Plan hier</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* verloop: hoe je laatste acht weken zich verhouden */
 function Verloop({ events, todayIso, weken = 8 }) {
   const [hover, setHover] = useState(null);
@@ -1638,6 +1714,7 @@ export default function Dashboard() {
               </div>
 
               <div className="grid-main">
+                <div className="stack">
                 <Card icon={TrendingUp} title={chartMode === "dag" ? "Je dag" : "Je week"}
                   action={
                     <div className="seg">
@@ -1683,6 +1760,30 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </Card>
+
+                <Card icon={Clock} title={chartMode === "dag" ? "Ruimte in je dag" : "Ruimte in je week"} action={<span />}>
+                  {chartMode === "dag" ? (
+                    <DagStrook events={zicht} date={todayIso} settings={settings} todayIso={todayIso}
+                      onPlan={(d, start, duur) => {
+                        setDraft({ title: "", type: "vrij", date: d, start: hhmm(start), end: hhmm(start + duur) });
+                        setQuickOpen(true);
+                      }} />
+                  ) : (
+                    <div className="week-strook">
+                      {weekDates.map((d, i) => (
+                        <div key={d} className="week-strook-rij">
+                          <span className={`week-strook-dag${d === todayIso ? " nu" : ""}`}>{DAYS[i]} {parse(d).getDate()}</span>
+                          <DagStrook events={zicht} date={d} settings={settings} todayIso={todayIso} compact
+                            onPlan={(dd, start, duur) => {
+                              setDraft({ title: "", type: "vrij", date: dd, start: hhmm(start), end: hhmm(start + duur) });
+                              setQuickOpen(true);
+                            }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+                </div>
 
                 <div className="stack">
                   <Card icon={TrendingUp} title="Verloop">
