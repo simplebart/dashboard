@@ -16,9 +16,9 @@ import { buildIcs } from "../lib/ics";
 /* ================================== model ================================== */
 
 export const TYPES = {
-  verplicht: { label: "Verplicht", color: "#6d7cb8", soft: "rgba(109,124,184,0.18)", line: "rgba(109,124,184,0.5)" },
-  vrij: { label: "Vrije tijd", color: "#57a98b", soft: "rgba(87,169,139,0.16)", line: "rgba(87,169,139,0.5)" },
-  klus: { label: "Huishouden", color: "#bf9755", soft: "rgba(191,151,85,0.14)", line: "rgba(191,151,85,0.45)" },
+  verplicht: { label: "Verplicht", color: "#7c86a8", chart: "#4a5168", soft: "rgba(124,134,168,0.16)", line: "rgba(124,134,168,0.45)" },
+  vrij: { label: "Vrije tijd", color: "#7aa793", chart: "#47665a", soft: "rgba(122,167,147,0.14)", line: "rgba(122,167,147,0.45)" },
+  klus: { label: "Huishouden", color: "#a89578", chart: "#6b5c45", soft: "rgba(168,149,120,0.13)", line: "rgba(168,149,120,0.4)" },
 };
 
 const DAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"];
@@ -451,7 +451,7 @@ function DayChart({ events, date, settings, isToday }) {
                   onMouseEnter={() => setHover({ i, h, items })} onMouseLeave={() => setHover(null)}>
                   <div className="bar-stack">
                     {per.map((x) => (
-                      <div key={x.t} className="bar-seg" style={{ height: `${scale(x.min)}%`, background: TYPES[x.t].color }} />
+                      <div key={x.t} className="bar-seg" style={{ height: `${scale(x.min)}%`, background: TYPES[x.t].chart }} />
                     ))}
                   </div>
                 </div>
@@ -512,9 +512,9 @@ function WeekChart({ events, weekDates, todayIso, settings }) {
                 <div key={d} className="bar"
                   onMouseEnter={() => setHover({ i, d, v, k, f })} onMouseLeave={() => setHover(null)}>
                   <div className="bar-stack">
-                    <div className="bar-seg" style={{ height: `${scale(f)}%`, background: TYPES.vrij.color }} />
-                    <div className="bar-seg" style={{ height: `${scale(k)}%`, background: TYPES.klus.color }} />
-                    <div className="bar-seg" style={{ height: `${scale(v)}%`, background: TYPES.verplicht.color }} />
+                    <div className="bar-seg" style={{ height: `${scale(f)}%`, background: TYPES.vrij.chart }} />
+                    <div className="bar-seg" style={{ height: `${scale(k)}%`, background: TYPES.klus.chart }} />
+                    <div className="bar-seg" style={{ height: `${scale(v)}%`, background: TYPES.verplicht.chart }} />
                   </div>
                 </div>
               );
@@ -595,44 +595,99 @@ function WeekGrid({ events, weekDates, todayIso, settings, onSelect }) {
   );
 }
 
-/* piekuren: over welk uur van de dag je week het drukst is */
-function PeakHours({ events, weekDates }) {
-  const perHour = Array.from({ length: 24 }, (_, h) => weekDates.reduce((sum, d) => sum + busyAt(events, d, h), 0));
-  const total = perHour.reduce((a, b) => a + b, 0) || 1;
-  const top = Math.ceil(Math.max(...perHour, 1));
-  const scale = (v) => (v / top) * 88;
-  const ticks = top <= 2 ? [0, 1, 2].slice(0, top + 1) : [0, Math.round(top / 2), top];
-  let bestStart = 0, best = -1;
-  for (let h = 0; h < 23; h++) {
-    const s = perHour[h] + perHour[h + 1];
-    if (s > best) { best = s; bestStart = h; }
+/* piekuren: op hoeveel dagen van de week een uur bezet is */
+function PeakHours({ events, weekDates, settings }) {
+  const [hover, setHover] = useState(null);
+  const uren = Array.from({ length: settings.dayEnd - settings.dayStart }, (_, i) => settings.dayStart + i);
+
+  // per uur: op welke dagen zit je bezet, en waarmee vooral
+  const kolommen = uren.map((h) => {
+    const telling = { verplicht: 0, vrij: 0, klus: 0 };
+    for (const d of weekDates) {
+      const raak = onDay(events, d).filter((e) => e.start < h + 1 && e.end > h);
+      if (!raak.length) continue;
+      const zwaarste = raak.sort((a, b) =>
+        (Math.min(b.end, h + 1) - Math.max(b.start, h)) - (Math.min(a.end, h + 1) - Math.max(a.start, h)))[0];
+      telling[zwaarste.type] += 1;
+    }
+    const dagen = telling.verplicht + telling.vrij + telling.klus;
+    return { h, telling, dagen };
+  });
+
+  const drukste = Math.max(...kolommen.map((k) => k.dagen));
+  const top = Math.max(2, drukste);
+  const scale = (n) => (n / top) * 86;
+  const ticks = top <= 3 ? Array.from({ length: top + 1 }, (_, i) => i) : [0, Math.round(top / 2), top];
+
+  let piek = 0, beste = -1;
+  for (let i = 0; i < kolommen.length - 1; i++) {
+    const som = kolommen[i].dagen + kolommen[i + 1].dagen;
+    if (som > beste) { beste = som; piek = i; }
   }
-  const share = Math.round((perHour[bestStart] / total) * 100);
-  const H = 130;
+  const H = 150;
+
+  if (drukste === 0) {
+    return (
+      <div className="inset">
+        <div className="peak-title">Nog niets gepland</div>
+        <p className="peak-sub">Zodra er afspraken in deze week staan, zie je hier op welke uren je meestal bezet bent.</p>
+      </div>
+    );
+  }
+
+  const piekDagen = Math.max(kolommen[piek].dagen, kolommen[piek + 1].dagen);
 
   return (
     <div className="inset">
-      <div className="peak-title">{String(bestStart).padStart(2, "0")}:00 – {String(bestStart + 2).padStart(2, "0")}:00</div>
-      <p className="peak-sub">~{share}% van je geplande uren valt in het drukste uur</p>
+      <div className="peak-title">
+        {String(kolommen[piek].h).padStart(2, "0")}:00 – {String(kolommen[piek].h + 2).padStart(2, "0")}:00
+      </div>
+      <p className="peak-sub">
+        Op {piekDagen} van de 7 dagen ben je dan bezet — je vastste moment van de week
+      </p>
       <div className="axis-wrap">
         <div className="y-axis" style={{ height: H }}>
           {ticks.map((t) => <span key={t} className="y-label" style={{ bottom: `${scale(t)}%` }}>{t}</span>)}
         </div>
         <div className="axis-col">
-          <div className="y-unit">uur per week</div>
+          <div className="y-unit">dagen bezet</div>
           <div className="chart-area" style={{ height: H }}>
             <div className="hgrid">
               {ticks.map((t) => <div key={t} className={`hline${t === 0 ? " base" : ""}`} style={{ bottom: `${scale(t)}%` }} />)}
             </div>
-            <div className="mini-bars" style={{ height: H }}>
-              {perHour.map((v, i) => (
-                <div key={i} className="mini-bar" title={`${String(i).padStart(2, "0")}:00 — ${v.toFixed(1)} uur deze week`}
-                  style={{ height: `${scale(v)}%` }} />
+            <div className="bars" style={{ height: H }}>
+              {kolommen.map((k, i) => (
+                <div key={k.h} className="bar"
+                  onMouseEnter={() => setHover({ i, ...k })} onMouseLeave={() => setHover(null)}>
+                  <div className="bar-stack">
+                    {Object.entries(k.telling).filter(([, n]) => n > 0).map(([t, n]) => (
+                      <div key={t} className="bar-seg" style={{ height: `${scale(n)}%`, background: TYPES[t].chart }} />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
+            {hover && (
+              <Tip x={((hover.i + 0.5) / kolommen.length) * 100}>
+                <div className="tip-box-head">
+                  {String(hover.h).padStart(2, "0")}:00 – {String(hover.h + 1).padStart(2, "0")}:00
+                </div>
+                {hover.dagen === 0
+                  ? <div className="tip-box-empty">Dit uur is de hele week vrij</div>
+                  : Object.entries(hover.telling).filter(([, n]) => n > 0).map(([t, n]) => (
+                    <div key={t} className="tip-box-row">
+                      <span className="type-dot" style={{ background: TYPES[t].color }} />
+                      {TYPES[t].label}
+                      <span className="tip-box-meta">{n} {n === 1 ? "dag" : "dagen"}</span>
+                    </div>
+                  ))}
+              </Tip>
+            )}
           </div>
           <div className="hour-labels">
-            {perHour.map((_, i) => <div key={i} className="hour-label">{i % 6 === 0 ? String(i).padStart(2, "0") : ""}</div>)}
+            {kolommen.map((k, i) => (
+              <div key={k.h} className="hour-label">{i % 3 === 0 ? `${String(k.h).padStart(2, "0")}:00` : ""}</div>
+            ))}
           </div>
         </div>
       </div>
@@ -833,6 +888,7 @@ export default function Dashboard() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [belOpen, setBelOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [feedTekst, setFeedTekst] = useState(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState({ title: "", type: "vrij", date: todayIso, start: "19:00", end: "20:00" });
   const fileRef = useRef(null);
@@ -1007,19 +1063,20 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
     flash("Open het bestand om het aan Apple Agenda toe te voegen");
   }
-  function feedAdres() {
+  function feedAdres(soort) {
     let token = data.feedToken;
     if (!token) {
       token = Array.from({ length: 5 }, () => Math.random().toString(36).slice(2, 8)).join("");
       setData((p) => ({ ...p, feedToken: token }));
     }
     const host = typeof window !== "undefined" ? window.location.host : "";
-    return `webcal://${host}/api/agenda/${token}.ics`;
+    return `webcal://${host}/api/agenda/${token}${soort ? "-" + soort : ""}.ics`;
   }
-  async function kopieerFeed() {
-    const adres = feedAdres();
-    try { await navigator.clipboard.writeText(adres); flash("Adres gekopieerd"); }
-    catch { flash(adres); }
+  async function kopieerFeed(soort) {
+    const adres = feedAdres(soort);
+    setFeedTekst(adres);
+    try { await navigator.clipboard.writeText(adres); flash(soort ? `Adres voor ${TYPES[soort].label} gekopieerd` : "Adres gekopieerd"); }
+    catch { flash("Kopieer het adres hieronder"); }
   }
 
   function exportJson() {
@@ -1308,56 +1365,9 @@ export default function Dashboard() {
                     </div>
                   </Card>
                   <Card icon={Clock} title="Piekuren">
-                    <PeakHours events={data.events} weekDates={weekDates} />
+                    <PeakHours events={data.events} weekDates={weekDates} settings={settings} />
                   </Card>
                 </div>
-              </div>
-
-              <div className="grid-main" style={{ marginTop: 12 }}>
-                <Card icon={Sparkles} title="Voorstellen"
-                  action={<span className="dim" style={{ fontSize: 11.5 }}>{tips.length} open</span>}>
-                  {tips.length === 0 ? (
-                    <div className="inset">
-                      <div className="peak-title">Je week klopt</div>
-                      <p className="peak-sub">Geen conflicten, geen klussen over tijd. Voeg iets toe en het dashboard denkt mee.</p>
-                    </div>
-                  ) : (
-                    <div className="inset">
-                      {tips.slice(0, 4).map((s) => (
-                        <div key={s.id} className="tip">
-                          <div className="tip-head">
-                            {s.urgent && <span className="tip-dot" />}
-                            <div>
-                              <div className="tip-title">{s.head}</div>
-                              <p className="tip-body">{s.body}</p>
-                            </div>
-                          </div>
-                          <div className="tip-actions">
-                            <button className="btn-primary btn-sm" onClick={() => accept(s)}>
-                              <Check size={12} strokeWidth={2.5} /> {s.cta}
-                            </button>
-                            <button className="btn btn-sm" onClick={() => setDismissed((d) => [...d, s.id])}>Laat maar</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-
-                <Card icon={Clock} title="Huishouden" action={<span />}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    {data.chores.map((c) => {
-                      const g = between(c.last, todayIso);
-                      return (
-                        <div key={c.id} className="chore-row">
-                          <button className="chore-check" onClick={() => choreDone(c)}><Check size={11} strokeWidth={3} /></button>
-                          <span className="chore-name">{c.name}</span>
-                          <span className={`chore-meta${g > c.every ? " late" : ""}`}>{g}d / {c.every}d</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
               </div>
 
               <div className="grid-main" style={{ marginTop: 12 }}>
@@ -1376,29 +1386,24 @@ export default function Dashboard() {
                       ))}
                     </div>
                   )}
-                  <div className="form-row divider-top">
-                    <input className="input" style={{ flex: 1, minWidth: 150 }} placeholder="Wat ga je doen?"
-                      value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                      onKeyDown={(e) => e.key === "Enter" && addEvent(false)} />
-                    <select className="select" value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })}>
-                      {Object.entries(TYPES).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}
-                    </select>
-                    <input className="input" type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
-                    <input className="input" type="time" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} />
-                    <input className="input" type="time" value={draft.end} onChange={(e) => setDraft({ ...draft, end: e.target.value })} />
-                    {draft.type !== "verplicht" && (
-                      <button className="btn" onClick={() => zoekMoment(draft, setDraft)}>
-                        <Wand2 size={13} /> Zoek moment
-                      </button>
-                    )}
-                    <button className="btn-primary" onClick={() => addEvent(false)}>Zet in agenda</button>
+                  <div className="divider-top dim" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+                    Iets toevoegen doe je met de knop rechtsboven, of met ⌘.
                   </div>
                 </Card>
 
-                <Card icon={Inbox} title="Opvangbak"
-                  action={<span className="dim" style={{ fontSize: 11.5 }}>{(data.inbox || []).length} open</span>}>
-                  <InboxPanel inbox={data.inbox || []} todayIso={todayIso} onAdd={addToInbox} onPlan={planInbox}
-                    onRemove={(id) => setData((p) => ({ ...p, inbox: p.inbox.filter((x) => x.id !== id) }))} />
+                <Card icon={Clock} title="Huishouden" action={<span />}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {data.chores.map((c) => {
+                      const g = between(c.last, todayIso);
+                      return (
+                        <div key={c.id} className="chore-row">
+                          <button className="chore-check" onClick={() => choreDone(c)}><Check size={11} strokeWidth={3} /></button>
+                          <span className="chore-name">{c.name}</span>
+                          <span className={`chore-meta${g > c.every ? " late" : ""}`}>{g}d / {c.every}d</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </Card>
               </div>
             </>
@@ -1546,19 +1551,28 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="setting">
-                  <div>
+                  <div style={{ width: "100%" }}>
                     <div className="setting-label">Live meekijken</div>
                     <div className="setting-hint">
                       {user
                         ? "Abonneer Apple Agenda op dit adres, dan ververst je week zichzelf. In Agenda: Archief → Nieuw agenda-abonnement, adres plakken."
                         : "Hiervoor moet je ingelogd zijn, want de feed haalt je week uit de database."}
                     </div>
-                    {user && <code className="feed">{data.feedToken ? feedAdres() : "adres wordt aangemaakt zodra je kopieert"}</code>}
-                  </div>
-                  <div className="setting-control">
-                    <button className="btn btn-sm" disabled={!user} onClick={kopieerFeed}>
-                      <Copy size={13} /> Kopieer adres
-                    </button>
+                    {user && <code className="feed">{feedTekst || (data.feedToken ? feedAdres() : "adres verschijnt zodra je kopieert")}</code>}
+                    <div className="feed-knoppen">
+                      <button className="btn btn-sm" disabled={!user} onClick={() => kopieerFeed()}>
+                        <Copy size={13} /> Alles
+                      </button>
+                      {Object.entries(TYPES).map(([k, t]) => (
+                        <button key={k} className="btn btn-sm" disabled={!user} onClick={() => kopieerFeed(k)}>
+                          <span className="type-dot" style={{ background: t.color }} /> {t.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="setting-hint" style={{ marginTop: 10 }}>
+                      Eén abonnement krijgt in Apple Agenda één kleur. Wil je kleur per soort, abonneer je dan
+                      op de drie losse adressen in plaats van op Alles — dan geef je elke agenda daar zijn eigen kleur.
+                    </div>
                   </div>
                 </div>
                 <div className="setting">
