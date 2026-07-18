@@ -16,7 +16,16 @@ export async function GET(request, { params }) {
     return new Response("Deze feed werkt pas als SUPABASE_SERVICE_ROLE_KEY is ingesteld.", { status: 501 });
   }
 
-  const token = String(params.token || "").replace(/\.ics$/i, "");
+  // Het adres ziet eruit als <token>.ics of <token>-vrij.ics
+  // De variant met een soort erachter levert alleen dat type afspraken.
+  let token = String(params.token || "").replace(/\.ics$/i, "");
+  let soort = null;
+  const staart = token.match(/-(verplicht|vrij|klus)$/i);
+  if (staart) {
+    soort = staart[1].toLowerCase();
+    token = token.slice(0, -staart[0].length);
+  }
+  if (!soort) soort = new URL(request.url).searchParams.get("soort");
   if (token.length < 12) return new Response("Ongeldig adres", { status: 400 });
 
   const sb = createClient(url, key, { auth: { persistSession: false } });
@@ -28,8 +37,18 @@ export async function GET(request, { params }) {
 
   if (error || !data) return new Response("Niet gevonden", { status: 404 });
 
-  const naam = data.data?.profile?.name ? `Dashboard van ${data.data.profile.name}` : "Dashboard";
-  const ics = buildIcs(data.data?.events || [], naam);
+  // ?soort=verplicht|vrij|klus levert een aparte agenda op, zodat Apple Agenda
+  // er een eigen kleur aan kan geven.
+  const LABELS = { verplicht: "Verplicht", vrij: "Vrije tijd", klus: "Huishouden" };
+  const alles = data.data?.events || [];
+  const events = soort && LABELS[soort] ? alles.filter((e) => e.type === soort) : alles;
+
+  const eigenaar = data.data?.profile?.name ? ` van ${data.data.profile.name}` : "";
+  const naam = soort && LABELS[soort]
+    ? `${LABELS[soort]}${eigenaar}`
+    : `Dashboard${eigenaar}`;
+
+  const ics = buildIcs(events, naam);
 
   return new Response(ics, {
     headers: {
